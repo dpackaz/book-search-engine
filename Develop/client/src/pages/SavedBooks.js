@@ -13,11 +13,13 @@ import Auth from "../utils/auth";
 import { removeBookId } from "../utils/localStorage";
 
 const SavedBooks = () => {
-  const token = Auth.loggedIn() ? Auth.getToken : null;
-  const { loading, userData } = useQuery(GET_ME, {
-    variables: { token: token },
-  });
-  const [deleteBook, { error, data }] = useMutation(DELETE_BOOK);
+  const { loading, data } = useQuery(GET_ME);
+  const [deleteBook] = useMutation(DELETE_BOOK);
+  const userData = data?.me || [];
+
+  if (!userData?.username) {
+    return "Please log in";
+  }
 
   // create function that accepts the book's mongo _id value as param and deletes the book from the database
   const handleDeleteBook = async (bookId) => {
@@ -28,23 +30,30 @@ const SavedBooks = () => {
     }
 
     try {
-      const response = await deleteBook(bookId, token);
-
-      if (!response.ok) {
-        throw new Error("something went wrong!");
-      }
-
-      const updatedUser = await response.json();
-      userData = updatedUser;
+      await deleteBook({
+        variables: { bookId: bookId },
+        update: (cache) => {
+          const data = cache.readQuery({ query: GET_ME });
+          const userDataCache = data.me;
+          const savedBooksCache = userDataCache.savedBooks;
+          const updatedBookCache = savedBooksCache.filter(
+            (book) => book.bookId !== bookId
+          );
+          data.me.savedBooks = updatedBookCache;
+          cache.writeQuery({
+            query: GET_ME,
+            data: { data: { ...data.me.savedBooks } },
+          });
+        },
+      });
       // upon success, remove book's id from localStorage
       removeBookId(bookId);
     } catch (err) {
       console.error(err);
     }
   };
-
   // if data isn't here yet, say so
-  if (!userDataLength) {
+  if (loading) {
     return <h2>LOADING...</h2>;
   }
 
